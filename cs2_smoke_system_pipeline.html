@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS2형 연막 시스템 — Houdini + UE5.7 제작 파이프라인</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+KR:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg: #090b0f;
+    --surface: #0f1318;
+    --surface2: #141a24;
+    --surface3: #1a2230;
+    --border: #1c2b3e;
+    --border2: #243448;
+    --accent: #00c8f0;
+    --accent2: #ff7043;
+    --accent3: #69e06a;
+    --accent4: #c77dff;
+    --text: #cdd9e8;
+    --muted: #4e6278;
+    --muted2: #3a4e62;
+    --houdini: #ff6b1a;
+    --ue5: #0ea5e9;
+    --niagara: #a855f7;
+    --blueprint: #3b82f6;
+    --gas: #f59e0b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13.5px;
+    line-height: 1.75;
+    padding: 36px 28px;
+    max-width: 1020px;
+    margin: 0 auto;
+  }
+
+  h1 { font-size: 20px; font-weight: 700; color: var(--accent); letter-spacing: -0.3px; margin-bottom: 3px; }
+  .subtitle { color: var(--muted); font-size: 11px; font-family: 'JetBrains Mono', monospace; margin-bottom: 36px; }
+
+  .section { margin-bottom: 40px; }
+  .section-title {
+    font-size: 11px; font-weight: 700; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 2.5px;
+    margin-bottom: 16px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── 레이어 아키텍처 ── */
+  .layer-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 16px;
+  }
+
+  .layer {
+    border-radius: 7px;
+    padding: 13px 18px;
+    display: grid;
+    grid-template-columns: 130px 1fr auto;
+    gap: 16px;
+    align-items: center;
+    border: 1px solid transparent;
+  }
+
+  .layer-sim   { background: #0f1f10; border-color: #1a3a1c; }
+  .layer-vol   { background: #0d1c2e; border-color: #1a3050; }
+  .layer-ss    { background: #1e1228; border-color: #321a44; }
+  .layer-net   { background: #1f1507; border-color: #3d2a0f; }
+
+  .layer-badge {
+    font-size: 10px; font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; padding: 3px 8px; border-radius: 4px;
+    text-align: center;
+  }
+
+  .badge-sim { background: #1a3a1c; color: var(--accent3); }
+  .badge-vol { background: #1a3050; color: var(--ue5); }
+  .badge-ss  { background: #321a44; color: var(--niagara); }
+  .badge-net { background: #3d2a0f; color: var(--houdini); }
+
+  .layer-desc { font-size: 12px; color: var(--text); }
+  .layer-tech { font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--muted); text-align: right; }
+
+  /* ── 파이프라인 스텝 ── */
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+
+  .pipe-step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    min-width: 148px;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .pipe-step.houdini-step { border-color: #3d2a0f; background: #110d08; }
+  .pipe-step.ue5-step     { border-color: #0c2a40; background: #080f18; }
+  .pipe-step.niagara-step { border-color: #2a1440; background: #0e0818; }
+
+  .pipe-num {
+    font-size: 9px; font-family: 'JetBrains Mono', monospace;
+    color: var(--muted); margin-bottom: 5px; display: block;
+  }
+
+  .pipe-title { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+  .pipe-sub   { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; line-height: 1.5; }
+
+  .pipe-arrow {
+    display: flex; align-items: center; padding: 0 6px;
+    color: var(--muted2); font-size: 16px; flex-shrink: 0;
+  }
+
+  /* ── 2컬럼 카드 ── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 15px 17px;
+  }
+
+  .card-title {
+    font-size: 11px; font-weight: 700; margin-bottom: 9px;
+    font-family: 'JetBrains Mono', monospace;
+    display: flex; align-items: center; gap: 7px;
+  }
+
+  .tag-h  { background: #3d1a08; color: var(--houdini); font-size: 9px; padding: 2px 6px; border-radius: 3px; }
+  .tag-u  { background: #082038; color: var(--ue5); font-size: 9px; padding: 2px 6px; border-radius: 3px; }
+  .tag-n  { background: #1e0838; color: var(--niagara); font-size: 9px; padding: 2px 6px; border-radius: 3px; }
+  .tag-b  { background: #081438; color: var(--blueprint); font-size: 9px; padding: 2px 6px; border-radius: 3px; }
+  .tag-g  { background: #2a1c02; color: var(--gas); font-size: 9px; padding: 2px 6px; border-radius: 3px; }
+  .tag-py { background: #0d2a0d; color: var(--accent3); font-size: 9px; padding: 2px 6px; border-radius: 3px; }
+
+  /* ── 데이터 흐름 다이어그램 ── */
+  .flow-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px;
+    overflow-x: auto;
+  }
+
+  /* ── 코드 블록 ── */
+  .code {
+    background: #060a0f;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.9;
+    overflow-x: auto;
+    margin-top: 10px;
+  }
+
+  .code .kw  { color: #bd93f9; }
+  .code .fn  { color: #7dd3fc; }
+  .code .str { color: #a8e6a3; }
+  .code .cm  { color: var(--muted); font-style: italic; }
+  .code .num { color: #ffb86c; }
+  .code .type { color: #f1fa8c; }
+  .code .op  { color: #ff79c6; }
+
+  /* ── 노드 연결 다이어그램 ── */
+  .node-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .nbox {
+    border-radius: 6px;
+    padding: 9px 13px;
+    min-width: 110px;
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+
+  .nbox-title { font-size: 9px; font-family: 'JetBrains Mono', monospace; color: var(--muted); margin-bottom: 3px; }
+  .nbox-name  { font-size: 11px; font-weight: 700; }
+  .nbox-pin   { font-size: 9px; color: var(--muted); margin-top: 3px; }
+
+  .nbox-h  { background: #110d08; border: 1px solid #3d2a0f; }
+  .nbox-u  { background: #080f18; border: 1px solid #0c2a40; }
+  .nbox-n  { background: #0e0818; border: 1px solid #2a1440; }
+  .nbox-b  { background: #08101e; border: 1px solid #0c1e40; }
+
+  .wire-h  { height: 2px; width: 28px; background: var(--houdini); flex-shrink: 0; position: relative; }
+  .wire-u  { height: 2px; width: 28px; background: var(--ue5);     flex-shrink: 0; position: relative; }
+  .wire-n  { height: 2px; width: 28px; background: var(--niagara); flex-shrink: 0; position: relative; }
+
+  .wire-h::after, .wire-u::after, .wire-n::after {
+    content: ''; position: absolute; top: 50%; right: 0;
+    transform: translateY(-50%);
+    border: 5px solid transparent;
+  }
+  .wire-h::after { border-left-color: var(--houdini); }
+  .wire-u::after { border-left-color: var(--ue5); }
+  .wire-n::after { border-left-color: var(--niagara); }
+
+  /* ── 팁/경고 ── */
+  .tip {
+    background: #081a0e; border: 1px solid #1a3a22;
+    border-left: 3px solid var(--accent3);
+    border-radius: 6px; padding: 11px 15px;
+    font-size: 12px; margin-top: 10px;
+    border-top-left-radius: 0; border-bottom-left-radius: 0;
+  }
+  .tip strong { color: var(--accent3); }
+
+  .warn {
+    background: #180e06; border: 1px solid #3d2210;
+    border-left: 3px solid var(--accent2);
+    border-radius: 6px; padding: 11px 15px;
+    font-size: 12px; margin-top: 10px;
+    border-top-left-radius: 0; border-bottom-left-radius: 0;
+  }
+  .warn strong { color: var(--accent2); }
+
+  .info {
+    background: #080f1e; border: 1px solid #0c2240;
+    border-left: 3px solid var(--ue5);
+    border-radius: 6px; padding: 11px 15px;
+    font-size: 12px; margin-top: 10px;
+    border-top-left-radius: 0; border-bottom-left-radius: 0;
+  }
+  .info strong { color: var(--ue5); }
+
+  .purple-box {
+    background: #0e0818; border: 1px solid #2a1440;
+    border-left: 3px solid var(--niagara);
+    border-radius: 6px; padding: 11px 15px;
+    font-size: 12px; margin-top: 10px;
+    border-top-left-radius: 0; border-bottom-left-radius: 0;
+  }
+  .purple-box strong { color: var(--niagara); }
+
+  /* ── 비교 테이블 ── */
+  .compare-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 11.5px; font-family: 'JetBrains Mono', monospace;
+  }
+  .compare-table th {
+    background: var(--surface2); padding: 8px 12px;
+    text-align: left; color: var(--muted);
+    font-size: 10px; font-weight: 700;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+  .compare-table td {
+    padding: 9px 12px; border-bottom: 1px solid var(--border2);
+    vertical-align: top; line-height: 1.5;
+  }
+  .compare-table tr:last-child td { border-bottom: none; }
+  .compare-table .good { color: var(--accent3); }
+  .compare-table .warn-text { color: var(--accent2); }
+
+  /* ── 이벤트 흐름 ── */
+  .event-chain {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .event-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 12px 16px;
+  }
+
+  .event-num {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 5px;
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    color: var(--accent); flex-shrink: 0; font-weight: 700;
+  }
+
+  .event-body { flex: 1; }
+  .event-title { font-size: 12px; font-weight: 700; margin-bottom: 3px; }
+  .event-detail { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+  .event-arrow {
+    text-align: center; color: var(--muted2);
+    font-size: 14px; line-height: 1;
+    padding: 2px 0;
+  }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  .inline-code {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--accent);
+  }
+
+  .label-row {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .phase-label {
+    font-size: 10px; font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; padding: 3px 10px; border-radius: 4px;
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+
+  .phase-h { background: #3d1a08; color: var(--houdini); }
+  .phase-u { background: #08203a; color: var(--ue5); }
+  .phase-n { background: #1a0838; color: var(--niagara); }
+  .phase-b { background: #081238; color: var(--blueprint); }
+  .phase-py { background: #082008; color: var(--accent3); }
+</style>
+</head>
+<body>
+
+<h1>CS2형 연막 시스템 — Houdini 21.0 + UE5.7 제작 파이프라인</h1>
+<p class="subtitle">// Grid3D Fluid Simulation · Sparse Volume Textures · Niagara Reactive Impulse · Heterogeneous Volumes</p>
+
+<!-- ─────────────── 01 아키텍처 ─────────────── -->
+<div class="section">
+  <div class="section-title">01 · 시스템 레이어 아키텍처</div>
+  <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">CS2 연막은 단순 스프라이트가 아닌 <strong style="color:var(--text)">4개 레이어의 혼합 시스템</strong>입니다. 각 레이어가 어떤 역할을 맡는지 먼저 구조를 파악해야 UE5.7 구현 전략이 결정됩니다.</p>
+
+  <div class="layer-stack">
+    <div class="layer layer-sim">
+      <div><span class="layer-badge badge-sim">Layer A</span><br><span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace">Fluid Grid Sim</span></div>
+      <div class="layer-desc">
+        <strong style="color:var(--accent3)">유체 그리드 시뮬레이션</strong> — 볼륨 내부를 3D 셀 그리드로 표현.
+        각 셀에는 밀도(density) 와 속도(velocity) 값이 있으며, 매 틱마다 advection으로 전파됩니다.
+        총알/폭발 시 해당 셀에 임펄스를 더해 밀도를 분산시킵니다.
+      </div>
+      <div class="layer-tech">Houdini Pyro DOPs<br>UE5 Niagara Grid3D</div>
+    </div>
+    <div class="layer layer-vol">
+      <div><span class="layer-badge badge-vol">Layer B</span><br><span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace">Volume Raymarch</span></div>
+      <div class="layer-desc">
+        <strong style="color:var(--ue5)">볼륨 레이마칭 렌더링</strong> — 밀도 필드(density field)를 볼륨 텍스처로 읽어
+        카메라 레이가 볼륨을 통과하며 누적 불투명도를 계산. 연막의 두께감과 내부 라이팅이 여기서 결정됩니다.
+      </div>
+      <div class="layer-tech">UE5 Heterogeneous Volumes<br>Sparse Volume Textures (SVT)</div>
+    </div>
+    <div class="layer layer-ss">
+      <div><span class="layer-badge badge-ss">Layer C</span><br><span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace">Screen Space</span></div>
+      <div class="layer-desc">
+        <strong style="color:var(--niagara)">스크린 스페이스 보정</strong> — Custom Depth와 씬 깊이를 비교해
+        연막 경계의 Soft Fade, 캐릭터와 연막의 교차 처리, 화면 공간 조명 근사치를 보완합니다.
+      </div>
+      <div class="layer-tech">Custom Depth Stencil<br>Post Process Material</div>
+    </div>
+    <div class="layer layer-net">
+      <div><span class="layer-badge badge-net">Layer D</span><br><span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace">Gameplay Sync</span></div>
+      <div class="layer-desc">
+        <strong style="color:var(--houdini)">게임플레이 연동</strong> — 서버에서 그리드 상태(요약본)를 전송하고,
+        클라에서 시각적 보간 처리. GAS로 그레네이드 투척 → 연막 스폰 → 상태 변이 흐름을 관리합니다.
+      </div>
+      <div class="layer-tech">GAS GameplayAbility<br>Blueprint Event Interface</div>
+    </div>
+  </div>
+
+  <div class="warn">
+    <strong>구현 범위 설정:</strong> 4개 레이어를 동시에 처음부터 구현하면 복잡도가 폭발합니다.
+    UE5.7 학습 목적이라면 <strong>Layer A (Grid3D) + Layer B (Heterogeneous Volume)</strong> 조합부터 시작하고,
+    Layer C/D는 이후 단계에서 붙이는 방식이 현실적입니다.
+  </div>
+</div>
+
+<!-- ─────────────── 02 Houdini 파트 ─────────────── -->
+<div class="section">
+  <div class="section-title">02 · Houdini 21.0 — 시뮬레이션 & 애셋 베이킹</div>
+
+  <div class="label-row">
+    <span class="phase-label phase-h">HOUDINI PHASE</span>
+    <span style="font-size:11px;color:var(--muted)">사전 제작 데이터 생성 → UE5.7로 Export</span>
+  </div>
+
+  <div class="pipeline" style="margin-bottom:14px;">
+    <div class="pipe-step houdini-step">
+      <span class="pipe-num">STEP 01</span>
+      <div class="pipe-title" style="color:var(--houdini)">Pyro Sparse 셋업</div>
+      <div class="pipe-sub">DOP Network<br>Sparse Container<br>density + vel fields</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step houdini-step">
+      <span class="pipe-num">STEP 02</span>
+      <div class="pipe-title" style="color:var(--houdini)">시뮬 실행</div>
+      <div class="pipe-sub">PyroSolver<br>Smoke Object<br>Wind/Force 적용</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step houdini-step">
+      <span class="pipe-num">STEP 03</span>
+      <div class="pipe-title" style="color:var(--houdini)">VDB 처리</div>
+      <div class="pipe-sub">VDB Resample<br>VDB Smooth<br>해상도 조정</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step houdini-step">
+      <span class="pipe-num">STEP 04</span>
+      <div class="pipe-title" style="color:var(--houdini)">Direction Map 베이킹</div>
+      <div class="pipe-sub">vel → RG 채널<br>Attribute Bake<br>PNG/EXR 출력</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step houdini-step">
+      <span class="pipe-num">STEP 05</span>
+      <div class="pipe-title" style="color:var(--houdini)">Export</div>
+      <div class="pipe-sub">.vdb 시퀀스<br>Flipbook 텍스처<br>Python 자동화</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title"><span class="tag-h">Houdini DOP</span> Pyro Sparse 셋업 핵심</div>
+      <div style="font-size:12px;">
+        <strong>Container Type: Sparse</strong> 필수 — Dense는 메모리가 고정이지만 Sparse는 연막이 있는 셀만 계산합니다.<br><br>
+        DOP Network 구성:
+        <ul style="margin-left:16px;margin-top:6px;color:var(--text);">
+          <li><span class="inline-code">pyro_import SOP</span> → 소스 지오메트리</li>
+          <li><span class="inline-code">Smoke Object</span> → 초기 밀도 세팅</li>
+          <li><span class="inline-code">PyroSolver</span> → advect + diffuse</li>
+          <li><span class="inline-code">Wind Force / Drag Force</span> → 외력</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="tag-h">Houdini SOP</span> Velocity → Direction Map 변환</div>
+      <div style="font-size:12px;">
+        시뮬 결과의 <span class="inline-code">vel</span> 속성(float3 벡터)을 텍스처 공간으로 인코딩하는 과정:<br><br>
+        <strong>1.</strong> <span class="inline-code">VDB Analysis</span> → velocity 필드 추출<br>
+        <strong>2.</strong> <span class="inline-code">Attribute Remap</span> → [-max, +max] → [0, 1]<br>
+        <strong>3.</strong> <span class="inline-code">Labs Bake Texture</span> → R=velX, G=velY, B=velZ<br>
+        <strong>4.</strong> 출력: 16-bit EXR (정밀도 유지) 권장
+      </div>
+    </div>
+  </div>
+
+  <div class="code" style="margin-top:14px;">
+<span class="cm"># Python (Houdini 21.0) — VDB 시퀀스를 배치로 UE5 임포트용 .vdb로 변환</span>
+<span class="kw">import</span> hou
+<span class="kw">import</span> os
+
+node = hou.<span class="fn">node</span>(<span class="str">'/obj/pyro_sim/OUT_vdb'</span>)
+output_dir = <span class="str">'/export/smoke_vdb/'</span>
+
+frame_range = (<span class="num">1</span>, <span class="num">120</span>)  <span class="cm"># 120프레임 베이킹</span>
+
+<span class="kw">for</span> frame <span class="kw">in</span> <span class="fn">range</span>(*frame_range):
+    hou.<span class="fn">setFrame</span>(frame)
+
+    <span class="cm"># density + velocity 채널 분리 export</span>
+    geo = node.<span class="fn">geometry</span>()
+    vdb_density = geo.<span class="fn">primGroups</span>()[<span class="str">'density'</span>]
+    vdb_vel     = geo.<span class="fn">primGroups</span>()[<span class="str">'vel'</span>]
+
+    filename = os.path.<span class="fn">join</span>(output_dir, <span class="fn">f</span><span class="str">'smoke_{frame:04d}.vdb'</span>)
+    node.<span class="fn">parm</span>(<span class="str">'file'</span>).<span class="fn">set</span>(filename)
+    node.<span class="fn">cook</span>(<span class="num">True</span>)
+
+<span class="fn">print</span>(<span class="fn">f</span><span class="str">"Exported {frame_range[1] - frame_range[0]} frames to {output_dir}"</span>)
+  </div>
+
+  <div class="tip">
+    <strong>Labs FlowMap 노드 활용:</strong> Houdini Labs의 <span class="inline-code">Labs FlowMap</span> SOP은 메시 위 커브 흐름 방향을 자동으로 UV 방향 맵으로 베이킹합니다.
+    연막 바닥면 흐름 애니메이션 제작 시 UV 방향 맵과 FlowMap을 조합하면 더 풍부한 결과를 얻을 수 있습니다.
+  </div>
+</div>
+
+<!-- ─────────────── 03 UE5.7 렌더링 파트 ─────────────── -->
+<div class="section">
+  <div class="section-title">03 · UE5.7 — 볼륨 렌더링 구현 (Heterogeneous Volumes + SVT)</div>
+
+  <div class="label-row">
+    <span class="phase-label phase-u">UE5.7 RENDER</span>
+    <span style="font-size:11px;color:var(--muted)">Pre-baked VDB → Sparse Volume Texture → 볼륨 레이마칭</span>
+  </div>
+
+  <div class="two-col" style="margin-bottom:14px;">
+    <div class="card">
+      <div class="card-title"><span class="tag-u">UE5.7</span> Sparse Volume Textures (SVT)</div>
+      <div style="font-size:12px;">
+        UE5.1+부터 <strong>.vdb 파일을 직접 SVT 에셋으로 임포트</strong>할 수 있습니다.<br><br>
+        임포트 경로:<br>
+        <span class="inline-code">Content Browser → Import → .vdb</span><br><br>
+        생성되는 에셋 타입: <span class="inline-code">USparseVolumeTexture</span><br><br>
+        채널 구성:
+        <ul style="margin-left:16px;margin-top:5px;">
+          <li>Attribute A → density (float)</li>
+          <li>Attribute B → temperature / vel (float3)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="tag-u">UE5.7</span> Heterogeneous Volume 컴포넌트</div>
+      <div style="font-size:12px;">
+        SVT를 씬에 배치하는 컴포넌트.<br>
+        <span class="inline-code">Actor → Add Component → Heterogeneous Volume</span><br><br>
+        주요 설정:
+        <ul style="margin-left:16px;margin-top:5px;">
+          <li><strong>Sparse Volume Texture</strong> — 임포트한 SVT 에셋 연결</li>
+          <li><strong>Max Step Count</strong> — 레이마칭 스텝 수 (품질 vs 성능)</li>
+          <li><strong>Extinction Scale</strong> — 밀도 감쇠 강도</li>
+          <li><strong>Albedo</strong> — 연막 산란 색상</li>
+          <li><strong>Frame Rate / Sequence</strong> — VDB 시퀀스 애니메이션</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 머티리얼 노드 연결 -->
+  <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">연막 머티리얼 그래프 — Density와 Velocity(Direction Map)를 함께 샘플링하는 구조:</p>
+
+  <div class="flow-diagram">
+    <div class="node-row">
+      <div class="nbox nbox-u">
+        <div class="nbox-title">SPARSE VOLUME TEXTURE</div>
+        <div class="nbox-name" style="color:var(--ue5)">T_Smoke_SVT</div>
+        <div class="nbox-pin">Channel A: density<br>Channel B: vel.xyz</div>
+      </div>
+      <div class="wire-u"></div>
+
+      <div class="nbox nbox-u">
+        <div class="nbox-title">SAMPLE SVT</div>
+        <div class="nbox-name" style="color:var(--ue5)">SparseVolumeTex</div>
+        <div class="nbox-pin">UVW: ObjectPosition<br>→ float4 out</div>
+      </div>
+      <div class="wire-u"></div>
+
+      <div class="nbox nbox-u">
+        <div class="nbox-title">CHANNEL SPLIT</div>
+        <div class="nbox-name" style="color:var(--ue5)">ComponentMask</div>
+        <div class="nbox-pin">R → Density<br>GB → Velocity XY</div>
+      </div>
+      <div class="wire-u"></div>
+
+      <div class="nbox nbox-u">
+        <div class="nbox-title">REMAP VEL</div>
+        <div class="nbox-name" style="color:var(--ue5)">× 2 − 1</div>
+        <div class="nbox-pin">[0,1] → [-1,1]<br>방향벡터 복원</div>
+      </div>
+      <div class="wire-u"></div>
+
+      <div class="nbox nbox-u" style="border-color:#1a5a30">
+        <div class="nbox-title">VOLUME OUTPUT</div>
+        <div class="nbox-name" style="color:#69e06a">HVol Node</div>
+        <div class="nbox-pin" style="color:var(--accent3)">↳ Extinction<br>↳ Albedo</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="info">
+    <strong>UE5.7 Heterogeneous Volumes + Lumen:</strong> Lumen은 Heterogeneous Volume의 <strong>조명 산란을 자동으로 처리</strong>합니다.
+    별도 라이팅 코드 없이도 씬의 다이렉셔널 라이트 / 스카이 라이트가 연막 내부를 자연스럽게 투과합니다.
+    다만 Heterogeneous Volume은 현재 <strong>동적 그림자(Dynamic Shadow)를 자체 투영하지 않으므로</strong>
+    볼륨 그림자가 필요하면 Volumetric Fog 레이어를 보조로 추가해야 합니다.
+  </div>
+</div>
+
+<!-- ─────────────── 04 Niagara Grid3D ─────────────── -->
+<div class="section">
+  <div class="section-title">04 · Niagara Grid3D — 런타임 반응형 유체 시뮬</div>
+
+  <div class="label-row">
+    <span class="phase-label phase-n">NIAGARA</span>
+    <span style="font-size:11px;color:var(--muted)">GPU에서 실시간으로 유체 그리드를 시뮬레이션하는 경로</span>
+  </div>
+
+  <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+    Pre-baked SVT는 아름답지만 <strong>총알/폭발에 반응하지 못합니다.</strong>
+    CS2처럼 연막이 실시간으로 변형되려면 Niagara의 <span class="inline-code">Grid3D Collection</span>으로
+    GPU에서 직접 Advection 루프를 돌려야 합니다.
+  </p>
+
+  <div class="three-col" style="margin-bottom:14px;">
+    <div class="card">
+      <div class="card-title"><span class="tag-n">Grid3D</span> 핵심 개념</div>
+      <div style="font-size:12px;">
+        <span class="inline-code">Grid3D Collection</span>은 3D 배열을 GPU 버퍼에 유지하는 Niagara 데이터 인터페이스입니다.<br><br>
+        연막에 필요한 채널:
+        <ul style="margin-left:14px;margin-top:5px;">
+          <li><strong>Density</strong> — float, 셀 당 연막 농도</li>
+          <li><strong>Velocity</strong> — float3, 셀 당 이동 방향/속도</li>
+          <li><strong>Pressure</strong> — float (divergence-free 보정용)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="tag-n">Niagara</span> 시스템 구성</div>
+      <div style="font-size:12px;">
+        <strong>Stage 1: Advect Velocity</strong><br>
+        <span style="color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:10px">vel = SampleGrid(pos - vel*dt)</span><br><br>
+        <strong>Stage 2: Apply Forces</strong><br>
+        <span style="color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:10px">vel += Impulse * dt</span><br><br>
+        <strong>Stage 3: Advect Density</strong><br>
+        <span style="color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:10px">density = SampleGrid(pos - vel*dt)</span><br><br>
+        <strong>Stage 4: Render Proxy</strong><br>
+        <span style="color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:10px">density → Sprite/Volume 출력</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="tag-n">Grid3D</span> 해상도 가이드</div>
+      <div style="font-size:12px;">
+        Grid3D 해상도는 <strong>성능과 품질의 직접 트레이드오프</strong>입니다.<br><br>
+        <table style="width:100%;font-size:10px;font-family:'JetBrains Mono',monospace;">
+          <tr><td style="color:var(--accent3)">32³</td><td>저사양 / 거친 시뮬</td></tr>
+          <tr><td style="color:var(--ue5)">64³</td><td>권장 (게임 런타임)</td></tr>
+          <tr><td style="color:var(--accent2)">128³</td><td>고품질 (PS5급 타겟)</td></tr>
+        </table>
+        <br>
+        CS2는 서버 시뮬을 <strong>32³ ~ 64³ 수준</strong>으로 추정됩니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="code">
+<span class="cm">// Niagara HLSL — Grid3D Advection Stage (Simulation Stage)</span>
+<span class="cm">// Grid3DCollection Interface에서 호출하는 커스텀 HLSL 블록</span>
+
+<span class="type">float3</span> pos = CellIndex.<span class="fn">xyz</span>;  <span class="cm">// 현재 셀 좌표 (0~resolution)</span>
+
+<span class="cm">// 1. 현재 셀의 속도 읽기</span>
+<span class="type">float3</span> vel = <span class="fn">GridRead_Velocity</span>(pos);
+
+<span class="cm">// 2. 역방향으로 추적 (Semi-Lagrangian advection)</span>
+<span class="type">float3</span> backPos = pos <span class="op">-</span> vel <span class="op">*</span> DeltaTime;
+
+<span class="cm">// 3. 이전 위치에서 밀도 샘플링 (쌍선형 보간)</span>
+<span class="type">float</span> newDensity = <span class="fn">GridSample_Density</span>(backPos);
+
+<span class="cm">// 4. 자연 소산 (연막이 시간이 지나면 옅어짐)</span>
+newDensity <span class="op">*=</span> (<span class="num">1.0</span> <span class="op">-</span> DissipationRate <span class="op">*</span> DeltaTime);
+
+<span class="cm">// 5. 결과 저장</span>
+<span class="fn">GridWrite_Density</span>(pos, newDensity);
+
+<span class="cm">// === 외부 임펄스 적용 (총알 / 폭발) ===</span>
+<span class="type">float3</span> worldPos  = <span class="fn">GridToWorld</span>(pos);
+<span class="type">float</span>  dist       = <span class="fn">length</span>(worldPos <span class="op">-</span> ImpulseOrigin);
+<span class="type">float</span>  strength   = <span class="fn">exp</span>(<span class="op">-</span>dist <span class="op">/</span> ImpulseRadius) <span class="op">*</span> ImpulseStrength;
+<span class="type">float3</span> impulseDir = <span class="fn">normalize</span>(worldPos <span class="op">-</span> ImpulseOrigin);
+
+vel <span class="op">+=</span> impulseDir <span class="op">*</span> strength;
+<span class="fn">GridWrite_Velocity</span>(pos, vel);
+  </div>
+
+  <div class="purple-box">
+    <strong>Semi-Lagrangian Advection 이란:</strong> 각 셀이 "나는 어디서 왔는가?"를 역방향으로 추적하는 기법입니다.
+    현재 위치 - 속도×시간 = 이전 위치 → 그 위치의 값을 현재 셀로 복사합니다.
+    단순하지만 안정적이라 게임 실시간 유체에 표준적으로 사용됩니다. (CS2도 이와 유사한 방식으로 추정)
+  </div>
+</div>
+
+<!-- ─────────────── 05 반응형 연동 ─────────────── -->
+<div class="section">
+  <div class="section-title">05 · Blueprint + GAS — 반응형 이벤트 연동</div>
+
+  <div class="label-row">
+    <span class="phase-label phase-b">BLUEPRINT</span>
+    <span class="phase-label phase-g">GAS</span>
+    <span style="font-size:11px;color:var(--muted)">총알/폭발 → 연막 그리드 임펄스 전달 파이프라인</span>
+  </div>
+
+  <div class="event-chain">
+    <div class="event-step">
+      <div class="event-num">1</div>
+      <div class="event-body">
+        <div class="event-title" style="color:var(--gas)">GAS — SmokeGrenadeAbility 활성화</div>
+        <div class="event-detail">UGameplayAbility → CommitAbility → SpawnActor(SmokeSphere_BP)<br>
+        태그: "Ability.Smoke.Active" 부여, 연막 유효 반경(SmokeRadius) GameplayEffect로 전달</div>
+      </div>
+    </div>
+    <div class="event-arrow">↓</div>
+    <div class="event-step">
+      <div class="event-num">2</div>
+      <div class="event-body">
+        <div class="event-title" style="color:var(--blueprint)">Blueprint — SmokeSphere_BP 스폰</div>
+        <div class="event-detail">Event BeginPlay → Niagara System Activate (Grid3D 연막 시스템)<br>
+        SphereCollision 반경 설정 → 씬에 볼륨 영역 정의</div>
+      </div>
+    </div>
+    <div class="event-arrow">↓</div>
+    <div class="event-step">
+      <div class="event-num">3</div>
+      <div class="event-body">
+        <div class="event-title" style="color:var(--blueprint)">Blueprint — 총알 충돌 감지</div>
+        <div class="event-detail">Projectile OnHit → Is Inside SmokeVolume? (Box/Sphere Overlap 체크)<br>
+        Hit Location + Hit Normal → SmokeSystem으로 전달</div>
+      </div>
+    </div>
+    <div class="event-arrow">↓</div>
+    <div class="event-step">
+      <div class="event-num">4</div>
+      <div class="event-body">
+        <div class="event-title" style="color:var(--niagara)">Niagara — User Parameter 인터페이스</div>
+        <div class="event-detail">Set Niagara Variable: "ImpulseOrigin" (FVector), "ImpulseStrength" (float)<br>
+        Blueprint → NiagaraComponent → SetVariableVector("ImpulseOrigin", HitLocation)</div>
+      </div>
+    </div>
+    <div class="event-arrow">↓</div>
+    <div class="event-step">
+      <div class="event-num">5</div>
+      <div class="event-body">
+        <div class="event-title" style="color:var(--niagara)">Niagara — Grid3D 임펄스 반영</div>
+        <div class="event-detail">Simulation Stage: ImpulseOrigin 주변 셀에 velocity 더함 (exp 감쇠)<br>
+        → density 필드 분산 → 레이마칭 렌더링이 자동으로 변형된 밀도 반영</div>
+      </div>
+    </div>
+    <div class="event-arrow">↓</div>
+    <div class="event-step">
+      <div class="event-num">6</div>
+      <div class="event-body">
+        <div class="event-title" style="color:var(--gas)">GAS — 연막 소멸 처리</div>
+        <div class="event-detail">GameplayEffect Duration 만료 → RemoveActiveGameplayEffect<br>
+        "Ability.Smoke.Active" 태그 제거 → Blueprint에 알림 → Niagara Deactivate + 소멸 애니메이션</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip" style="margin-top:14px;">
+    <strong>Blueprint → Niagara 파라미터 전달 패턴:</strong>
+    <span class="inline-code">UNiagaraComponent::SetVariableVec3()</span> 는 매 프레임 호출 가능합니다.
+    총알이 연막을 통과할 때 <strong>관통 경로 전체를 N개의 임펄스 포인트로 분할</strong>해 전달하면
+    더 현실적인 연막 분산 효과를 만들 수 있습니다.
+  </div>
+</div>
+
+<!-- ─────────────── 06 렌더링 옵션 비교 ─────────────── -->
+<div class="section">
+  <div class="section-title">06 · 렌더링 전략 비교 — 상황별 선택</div>
+
+  <div class="flow-diagram" style="padding:16px;">
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>방식</th>
+          <th>UE5.7 구현</th>
+          <th>품질</th>
+          <th>성능</th>
+          <th>반응성</th>
+          <th>적합한 상황</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Heterogeneous Volume + SVT</strong></td>
+          <td>VDB Import → UHVolumeComponent</td>
+          <td class="good">★★★★★</td>
+          <td class="warn-text">★★★☆☆</td>
+          <td class="warn-text">불가 (프리베이크)</td>
+          <td>시네마틱, 컷씬, 비반응형 배경 연막</td>
+        </tr>
+        <tr>
+          <td><strong>Niagara Grid3D (GPU)</strong></td>
+          <td>Grid3D Collection + Sim Stage HLSL</td>
+          <td class="good">★★★★☆</td>
+          <td class="good">★★★★☆</td>
+          <td class="good">실시간 반응</td>
+          <td>게임플레이 연막, CS2형 구현 목표</td>
+        </tr>
+        <tr>
+          <td><strong>Niagara Particle + Sprite Sheet</strong></td>
+          <td>Flipbook 텍스처 + Direction Map 왜곡</td>
+          <td>★★★☆☆</td>
+          <td class="good">★★★★★</td>
+          <td>부분적 (파티클 위치 이동)</td>
+          <td>모바일, 저사양 플랫폼 타겟</td>
+        </tr>
+        <tr>
+          <td><strong>Volumetric Fog (Post Process)</strong></td>
+          <td>Exponential Height Fog + 파티클 조합</td>
+          <td>★★☆☆☆</td>
+          <td class="good">★★★★★</td>
+          <td>제한적</td>
+          <td>폭발 후 잔연, 대기 안개 효과</td>
+        </tr>
+        <tr>
+          <td><strong>하이브리드 (SVT + Grid3D)</strong></td>
+          <td>정적 베이스 + 동적 임펄스 레이어</td>
+          <td class="good">★★★★★</td>
+          <td>★★★☆☆</td>
+          <td class="good">반응 레이어만 처리</td>
+          <td>AAA급 타이틀, CS2 실제 구조에 가장 근접</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="info" style="margin-top:12px;">
+    <strong>CS2 실제 구조에 가장 근접한 UE5.7 구현:</strong> 정적 볼륨 베이스(Heterogeneous Volume으로 연막 전개 표현) +
+    Grid3D 임펄스 레이어(반응성 전담)를 분리하는 <strong>하이브리드 접근</strong>이 렌더링 품질과 성능을 동시에 잡는 전략입니다.
+    두 시스템의 결과를 Material 레벨에서 블렌딩하면 됩니다.
+  </div>
+</div>
+
+<!-- ─────────────── 07 스크린스페이스 보정 ─────────────── -->
+<div class="section">
+  <div class="section-title">07 · 스크린 스페이스 보정 — Custom Depth + Post Process</div>
+
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title"><span class="tag-u">UE5.7</span> Soft Edge (연막 경계 부드럽게)</div>
+      <div style="font-size:12px;">
+        연막이 바닥/벽과 만나는 경계를 자연스럽게 처리하려면:<br><br>
+        <strong>1.</strong> 연막 메시 Actor → <span class="inline-code">Render CustomDepth Pass: ON</span><br>
+        <strong>2.</strong> Post Process Material에서:<br>
+        <span style="color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:10px">
+          SceneDepth - CustomDepth → Fade Mask<br>
+          Fade 거리: 약 30~80 UU
+        </span><br><br>
+        <strong>3.</strong> 이 Fade Mask를 볼륨 Extinction에 곱하면<br>
+        연막이 지오메트리 표면에서 자연스럽게 사라집니다.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="tag-u">UE5.7</span> 연막 내부 Occlusion 처리</div>
+      <div style="font-size:12px;">
+        연막 내부에서 먼 쪽 물체를 가리는 처리:<br><br>
+        <strong>방법 A: 레이마칭 자체 감쇠</strong><br>
+        Heterogeneous Volume의 Extinction 값이 충분히 높으면 자동 처리됩니다.<br><br>
+        <strong>방법 B: Depth Prepass</strong><br>
+        연막 Actor에 <span class="inline-code">Translucency Sort</span> 를 활용해
+        깊이 정렬이 올바르게 이뤄지도록 합니다.<br><br>
+        <strong>방법 C: Lumen 신뢰</strong><br>
+        UE5.7 Lumen은 볼륨 자체 조명/차폐를 상당 부분 처리해줍니다.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────── 08 전체 흐름 요약 ─────────────── -->
+<div class="section">
+  <div class="section-title">08 · 전체 제작 흐름 요약</div>
+
+  <div class="pipeline" style="flex-direction:column;gap:4px;">
+    <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-bottom:4px;">HOUDINI PHASE ──────────────────────────────────</div>
+    <div class="pipeline" style="margin-bottom:8px;">
+      <div class="pipe-step houdini-step">
+        <span class="pipe-num">H-01</span>
+        <div class="pipe-title" style="color:var(--houdini)">Pyro Sparse 시뮬</div>
+        <div class="pipe-sub">density + vel 채널<br>외력 적용/테스트</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step houdini-step">
+        <span class="pipe-num">H-02</span>
+        <div class="pipe-title" style="color:var(--houdini)">VDB 후처리</div>
+        <div class="pipe-sub">Resample + Smooth<br>해상도 최적화</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step houdini-step">
+        <span class="pipe-num">H-03</span>
+        <div class="pipe-title" style="color:var(--houdini)">Direction Map 베이킹</div>
+        <div class="pipe-sub">vel → RG 채널<br>16-bit EXR 출력</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step houdini-step">
+        <span class="pipe-num">H-04</span>
+        <div class="pipe-title" style="color:var(--houdini)">Python 배치 Export</div>
+        <div class="pipe-sub">.vdb 시퀀스<br>자동 네이밍</div>
+      </div>
+    </div>
+
+    <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-bottom:4px;margin-top:4px;">UE5.7 PHASE ──────────────────────────────────────</div>
+    <div class="pipeline" style="margin-bottom:8px;">
+      <div class="pipe-step ue5-step">
+        <span class="pipe-num">U-01</span>
+        <div class="pipe-title" style="color:var(--ue5)">VDB → SVT 임포트</div>
+        <div class="pipe-sub">Content Browser<br>.vdb → SVT Asset</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step ue5-step">
+        <span class="pipe-num">U-02</span>
+        <div class="pipe-title" style="color:var(--ue5)">Heterogeneous Vol 배치</div>
+        <div class="pipe-sub">Actor + SVT 연결<br>Extinction 세팅</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step niagara-step">
+        <span class="pipe-num">N-01</span>
+        <div class="pipe-title" style="color:var(--niagara)">Grid3D 시스템 구성</div>
+        <div class="pipe-sub">64³ 해상도<br>Advection Stage</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step niagara-step">
+        <span class="pipe-num">N-02</span>
+        <div class="pipe-title" style="color:var(--niagara)">BP/GAS 이벤트 연동</div>
+        <div class="pipe-sub">ImpulseOrigin<br>SetNiagaraVariable</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step ue5-step">
+        <span class="pipe-num">U-03</span>
+        <div class="pipe-title" style="color:var(--ue5)">Screen Space 보정</div>
+        <div class="pipe-sub">CustomDepth Fade<br>Post Process Mat</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip" style="margin-top:14px;">
+    <strong>학습 순서 제안:</strong>
+    ① Houdini에서 간단한 Pyro 시뮬 후 VDB export →
+    ② UE5.7에서 Heterogeneous Volume으로 배치/렌더 확인 →
+    ③ Niagara Grid3D 빈 시스템 만들어서 Advection 스테이지 HLSL 작성 →
+    ④ Blueprint에서 임펄스 이벤트 연결 →
+    ⑤ 두 레이어 Material 블렌딩 → CustomDepth 보정 순으로 진행하면
+    각 시스템의 데이터 흐름이 명확하게 체화됩니다.
+  </div>
+</div>
+
+<hr>
+<div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;text-align:right">
+  CS2-Style Smoke · Houdini 21.0 Pyro → VDB · UE5.7 SVT · Niagara Grid3D · GAS Event Interface
+</div>
+
+</body>
+</html>
